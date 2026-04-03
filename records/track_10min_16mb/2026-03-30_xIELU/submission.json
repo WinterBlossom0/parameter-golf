@@ -1,0 +1,10 @@
+{
+  "name": "Vihaan Ovalekar",
+  "github_id": "WinterBlossom0",
+  "submission_date": "2026-04-03",
+  "val_bpb": null,
+  "val_loss": null,
+  "model_architecture": "11L XSA4 SmearGate BigramHash 3xMLP EMA Int6-GPTQlite PartialRoPE LNScale",
+  "key_changes": "11L, 3x MLP, SmearGate, BigramHash(2048), XSA last 4 layers, partial RoPE 16/64, LN Scale, EMA 0.997, orthogonal+muP init, Muon WD=0.04, AdamW WD=0.04, int6 GPTQ-lite, sliding eval s64, seq2048, batch 786k, warmdown 3500",
+  "notes": "Full competition stack. Target: 8xH100 RunPod, 600s wallclock. Sliding window eval stride=64."
+}
