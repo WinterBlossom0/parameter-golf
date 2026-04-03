@@ -614,7 +614,7 @@ def apply_rotary_emb(x: Tensor, cos: Tensor, sin: Tensor, rope_dims: int = 0) ->
 class SmearGate(nn.Module):
     def __init__(self, dim: int):
         super().__init__()
-        self.gate = nn.Parameter(torch.zeros(dim, dtype=torch.float32))
+        self.gate = nn.Parameter(torch.full((dim,), -3.0, dtype=torch.float32))
     def forward(self, x: Tensor) -> Tensor:
         g = torch.sigmoid(self.gate.to(dtype=x.dtype))[None, None, :]
         x_prev = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)
@@ -653,6 +653,7 @@ class CausalSelfAttention(nn.Module):
         num_kv_heads: int,
         rope_base: float,
         qk_gain_init: float,
+        train_seq_len: int = 2048,
     ):
         super().__init__()
         if dim % num_heads != 0:
@@ -672,7 +673,7 @@ class CausalSelfAttention(nn.Module):
         self.proj._zero_init = True
         self.q_gain = nn.Parameter(torch.full((num_heads,), qk_gain_init, dtype=torch.float32))
         self.rope_dims = 0
-        self.rotary = Rotary(self.head_dim, base=rope_base, train_seq_len=1024)
+        self.rotary = Rotary(self.head_dim, base=rope_base, train_seq_len=train_seq_len)
         self.use_xsa = False
 
     def _xsa_efficient(self, y: Tensor, v: Tensor) -> Tensor:
@@ -735,11 +736,12 @@ class Block(nn.Module):
         qk_gain_init: float,
         layer_idx: int = 0,
         ln_scale: bool = False,
+        train_seq_len: int = 2048,
     ):
         super().__init__()
         self.attn_norm = RMSNorm()
         self.mlp_norm = RMSNorm()
-        self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, rope_base, qk_gain_init)
+        self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, rope_base, qk_gain_init, train_seq_len=train_seq_len)
         self.mlp = MLP(dim, mlp_mult)
         self.attn_scale = nn.Parameter(torch.ones(dim, dtype=torch.float32))
         self.mlp_scale = nn.Parameter(torch.ones(dim, dtype=torch.float32))
@@ -774,6 +776,7 @@ class GPT(nn.Module):
         xsa_last_n: int = 0,
         rope_dims: int = 0,
         ln_scale: bool = False,
+        train_seq_len: int = 2048,
     ):
         super().__init__()
         if logit_softcap <= 0.0:
@@ -793,6 +796,7 @@ class GPT(nn.Module):
                 Block(
                     model_dim, num_heads, num_kv_heads, mlp_mult,
                     rope_base, qk_gain_init, layer_idx=i, ln_scale=ln_scale,
+                    train_seq_len=train_seq_len,
                 )
                 for i in range(num_layers)
             ]
@@ -801,7 +805,7 @@ class GPT(nn.Module):
             head_dim = model_dim // num_heads
             for block in self.blocks:
                 block.attn.rope_dims = rope_dims
-                block.attn.rotary = Rotary(head_dim, base=rope_base, train_seq_len=1024, rope_dims=rope_dims)
+                block.attn.rotary = Rotary(head_dim, base=rope_base, train_seq_len=train_seq_len, rope_dims=rope_dims)
         if xsa_last_n > 0:
             for i in range(max(0, num_layers - xsa_last_n), num_layers):
                 self.blocks[i].attn.use_xsa = True
@@ -1039,6 +1043,7 @@ def main() -> None:
         xsa_last_n=args.xsa_last_n,
         rope_dims=args.rope_dims,
         ln_scale=args.ln_scale,
+        train_seq_len=args.train_seq_len,
     ).to(device).bfloat16()
     for module in base_model.modules():
         if isinstance(module, CastedLinear):
