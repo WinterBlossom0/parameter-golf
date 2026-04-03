@@ -700,10 +700,11 @@ class CausalSelfAttention(nn.Module):
         q2 = q.transpose(1, 2)
         k2 = k.transpose(1, 2)
         v2 = v.transpose(1, 2)
-        y = F.scaled_dot_product_attention(
-            q2, k2, v2, attn_mask=None, is_causal=True,
-            enable_gqa=(self.num_kv_heads != self.num_heads),
-        )
+        if self.num_kv_heads < self.num_heads:
+            rep = self.num_heads // self.num_kv_heads
+            k2 = k2.repeat_interleave(rep, dim=1)
+            v2 = v2.repeat_interleave(rep, dim=1)
+        y = F.scaled_dot_product_attention(q2, k2, v2, attn_mask=None, is_causal=True)
         y = y.transpose(1, 2).contiguous()  # back to (B, T, H, D)
         if self.use_xsa:
             y = self._xsa_efficient(y, v)
